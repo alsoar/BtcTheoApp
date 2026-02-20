@@ -5,3 +5,7 @@ __pycache__/
 out/
 *.f32
 *.zst
+
+# allow LFS data files
+!data/*.f32
+!data/*.json
