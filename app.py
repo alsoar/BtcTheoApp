@@ -5,8 +5,8 @@ import os
 import struct
 import streamlit as st
 
-GRID_PATH = "out/cdf_grid.f32"
-META_PATH = "out/cdf_grid_meta.json"
+GRID_PATH = "data/cdf_grid.f32"
+META_PATH = "data/cdf_grid_meta.json"
 STRICT_EPS_BP = 0.1  # one bucket below for strict >= approximation
 
 
