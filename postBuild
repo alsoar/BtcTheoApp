@@ -1,0 +1,11 @@
+#!/bin/bash
+set -e
+
+echo "Installing / initializing git-lfs (if present)..."
+git lfs install || true
+
+echo "Pulling LFS objects..."
+git lfs pull
+
+echo "LFS pull complete. Listing data/cond files:"
+ls -lh data | grep cond || true
