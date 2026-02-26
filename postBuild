@@ -1,11 +1,27 @@
 #!/bin/bash
 set -e
 
-echo "Installing / initializing git-lfs (if present)..."
+echo "=== postBuild: environment ==="
+pwd
+ls -la
+
+echo "=== postBuild: git + lfs versions ==="
+git --version || true
+git lfs version || true
+
+echo "=== postBuild: init LFS ==="
 git lfs install || true
 
-echo "Pulling LFS objects..."
-git lfs pull
+echo "=== postBuild: pulling LFS objects ==="
+git lfs pull || true
 
-echo "LFS pull complete. Listing data/cond files:"
-ls -lh data | grep cond || true
+echo "=== postBuild: list data directory ==="
+ls -lh data || true
+
+echo "=== postBuild: verify required files ==="
+test -f data/cdf_grid.f32 || (echo "MISSING data/cdf_grid.f32" && exit 1)
+test -f data/cdf_grid_meta.json || (echo "MISSING data/cdf_grid_meta.json" && exit 1)
+
+echo "=== postBuild: conditional files (optional) ==="
+ls -lh data/cond_bucket_*.f32 2>/dev/null || true
+test -f data/cond_cdf_meta.json && echo "Found cond meta" || echo "No cond meta"
