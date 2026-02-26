@@ -1,0 +1,66 @@
+{
+  "meaning": "bucketed-conditional grid: CDF_b(lag,bp)=P(bp_future<=bp | bp_past_15m in bucket b)",
+  "price_path": "out/close_rev.f32",
+  "bucket_id_path": "out/bucket16_id_u8.bin",
+  "dtype": "float32",
+  "bp_min": -4000.0,
+  "bp_max": 5000.0,
+  "step_bp": 0.1,
+  "bp10_min": -40000,
+  "bp10_max": 50000,
+  "num_bins": 90001,
+  "bucket_files": [
+    "cond16_bucket_0.f32",
+    "cond16_bucket_1.f32",
+    "cond16_bucket_2.f32",
+    "cond16_bucket_3.f32",
+    "cond16_bucket_4.f32",
+    "cond16_bucket_5.f32",
+    "cond16_bucket_6.f32",
+    "cond16_bucket_7.f32",
+    "cond16_bucket_8.f32",
+    "cond16_bucket_9.f32",
+    "cond16_bucket_10.f32",
+    "cond16_bucket_11.f32",
+    "cond16_bucket_12.f32",
+    "cond16_bucket_13.f32",
+    "cond16_bucket_14.f32",
+    "cond16_bucket_15.f32"
+  ],
+  "bucket_file_shape": [
+    901,
+    90001
+  ],
+  "past_lag_seconds": 900,
+  "future_lags_seconds": [
+    1,
+    900
+  ],
+  "edges_bp": [
+    10.0,
+    25.0,
+    50.0,
+    100.0,
+    200.0,
+    400.0,
+    800.0
+  ],
+  "bucket_scheme": [
+    "0: bp<=-800",
+    "1: -800<bp<=-400",
+    "2: -400<bp<=-200",
+    "3: -200<bp<=-100",
+    "4: -100<bp<=-50",
+    "5: -50<bp<=-25",
+    "6: -25<bp<=-10",
+    "7: -10<bp<=0",
+    "8: 0<bp<=10",
+    "9: 10<bp<=25",
+    "10: 25<bp<=50",
+    "11: 50<bp<=100",
+    "12: 100<bp<=200",
+    "13: 200<bp<=400",
+    "14: 400<bp<=800",
+    "15: bp>800"
+  ]
+}
