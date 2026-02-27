@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
+git config -f .lfsconfig lfs.url https://github.com/alsoar/BtcTheoApp.git/info/lfs
 git lfs install || true
 git lfs fetch --all
 git lfs checkout
-ls -lh data | grep cond16 || true
