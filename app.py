@@ -8,6 +8,8 @@ import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
 
+APP_VERSION = "deploy-plots-panel-v1"
+
 UN_GRID_PATH  = "data/cdf_grid.f32"
 UN_META_PATH  = "data/cdf_grid_meta.json"
 
@@ -41,7 +43,7 @@ def load_cond_meta():
 def load_bucket_file(bucket: int):
     cm = load_cond_meta()
     B = len(cm["bucket_files"])
-    b = max(0, min(bucket, B - 1))
+    b = max(0, min(int(bucket), B - 1))
     fname = cm["bucket_files"][b]
     path = os.path.join(COND_DIR, fname)
     f = open(path, "rb")
@@ -192,96 +194,54 @@ def plot_theo_line(xvals, theo_cents, xlabel, title):
     plt.tight_layout()
     st.pyplot(fig, clear_figure=True)
 
-st.set_page_config(page_title="YES Theo (Conditional + Smoothing + Plots)", layout="centered")
+st.set_page_config(page_title="YES Theo (Smoothing + Plots)", layout="centered")
 st.title("YES Theo Calculator (BTC 15m Up/Down)")
-st.write("Includes optional smoothing and optional plots of theo as a function of a single input while holding others fixed.")
+st.caption(f"version: {APP_VERSION}")
 
 use_cond = st.checkbox("Use regime-conditional CDF", value=False, key="use_cond")
 
 smooth_mix = False
-if use_cond:
-    c1, c2 = st.columns([1, 2])
-    with c1:
-        smooth_mix = st.checkbox("Enable smoothing", value=True, key="smooth_mix")
-    with c2:
-        st.info("Smoothing uses percentile u within bucket and mixes conditional CDFs; theo = 1 − mixed_CDF.")
-
-lag_col1, lag_col2 = st.columns([4, 1])
-with lag_col1:
-    lag = st.number_input("Lag seconds remaining (1–900)", min_value=1, max_value=900, value=180, step=1, key="lag")
-with lag_col2:
-    plot_lag = st.checkbox("Plot", value=False, key="plot_lag")
-
-bucket = None
-bp_past = None
-u = None
-
-plot_bp_past = False
-if use_cond:
-    bp_col1, bp_col2 = st.columns([4, 1])
-    with bp_col1:
-        bp_past = st.number_input("Past 15-minute move (bp)", value=0.0, step=5.0, format="%.1f", key="bp_past")
-    with bp_col2:
-        plot_bp_past = st.checkbox("Plot", value=False, key="plot_bp_past")
-    bucket = bucket_id_16(float(bp_past))
-    st.caption(f"Bucket = {bucket} ({BUCKET_LABELS_16[bucket]})")
-
-mix_mode = None
+mix_mode = "16-bucket smooth"
 tau = 0.60
 tau_c = 0.50
 k = 2.0
-plot_tau = False
-plot_k = False
 
-if use_cond and smooth_mix:
-    mix_mode = st.radio("Smoothing mode", ["3-bucket softmax", "16-bucket smooth"], index=1, key="mix_mode")
-    if mix_mode == "3-bucket softmax":
-        t1, t2, t3 = st.columns([3, 3, 1])
-        with t1:
+if use_cond:
+    smooth_mix = st.checkbox("Enable smoothing", value=True, key="smooth_mix")
+    if smooth_mix:
+        mix_mode = st.radio("Smoothing mode", ["3-bucket softmax", "16-bucket smooth"], index=1, key="mix_mode")
+        if mix_mode == "3-bucket softmax":
             tau = st.number_input("tau (edge temperature)", value=0.60, step=0.05, format="%.2f", key="tau")
-        with t2:
             tau_c = st.number_input("tau_c (center temperature)", value=0.50, step=0.05, format="%.2f", key="tau_c")
-        with t3:
-            plot_tau = st.checkbox("Plot", value=False, key="plot_tau")
-    else:
-        k1, k2c = st.columns([4, 1])
-        with k1:
+        else:
             k = st.number_input("k (spread across bucket index)", value=2.0, step=0.25, format="%.2f", key="k")
-        with k2c:
-            plot_k = st.checkbox("Plot", value=False, key="plot_k")
+
+lag = st.number_input("Lag seconds remaining (1–900)", min_value=1, max_value=900, value=180, step=1, key="lag")
+
+bp_past = 0.0
+bucket = None
+if use_cond:
+    bp_past = st.number_input("Past 15-minute move (bp)", value=0.0, step=5.0, format="%.1f", key="bp_past")
+    bucket = bucket_id_16(float(bp_past))
+    st.caption(f"Bucket = {bucket} ({BUCKET_LABELS_16[bucket]})")
 
 mode = st.radio("Input mode", ["bps_up_now", "prices (current vs target)"], index=0, key="mode")
-
-plot_bp_up = False
-plot_cur = False
-plot_target = False
 
 bp_up_now = 5.0
 s_target = 100000.0
 s_cur = 100050.0
 
 if mode == "bps_up_now":
-    b1, b2 = st.columns([4, 1])
-    with b1:
-        bp_up_now = st.number_input("Current move vs target (bp)", value=5.0, step=0.1, format="%.1f", key="bp_up_now")
-    with b2:
-        plot_bp_up = st.checkbox("Plot", value=False, key="plot_bp_up_now")
+    bp_up_now = st.number_input("Current move vs target (bp)", value=5.0, step=0.1, format="%.1f", key="bp_up_now")
 else:
-    p1, p2, p3, p4 = st.columns([3, 1, 3, 1])
-    with p1:
-        s_target = st.number_input("Target BTC price (start of window)", value=100000.0, step=10.0, format="%.2f", key="target")
-    with p2:
-        plot_target = st.checkbox("Plot", value=False, key="plot_target")
-    with p3:
-        s_cur = st.number_input("Current BTC price", value=100050.0, step=10.0, format="%.2f", key="cur")
-    with p4:
-        plot_cur = st.checkbox("Plot", value=False, key="plot_cur")
+    s_target = st.number_input("Target BTC price (start of window)", value=100000.0, step=10.0, format="%.2f", key="target")
+    s_cur = st.number_input("Current BTC price", value=100050.0, step=10.0, format="%.2f", key="cur")
 
 un = None
 if not use_cond:
     un = load_uncond()
 
-def make_cdf_func(bp_past_val: float, lag_val: int, tau_val: float, tau_c_val: float, k_val: float):
+def make_cdf_func(bp_past_val: float, tau_val: float, tau_c_val: float, k_val: float):
     if not use_cond:
         g = un
         def f(lag_, bp_):
@@ -308,23 +268,22 @@ def make_cdf_func(bp_past_val: float, lag_val: int, tau_val: float, tau_c_val: f
                 w_cur  * cdf_cond(b,      lag_, bp_) +
                 w_next * cdf_cond(b_next, lag_, bp_)
             )
-        return f, {"mix": "3", "bucket": b, "u": u0, "w": [w_prev, w_cur, w_next], "bins": [b_prev, b, b_next]}
+        weights_vec = np.zeros(B, dtype=np.float64)
+        weights_vec[b_prev] += w_prev
+        weights_vec[b] += w_cur
+        weights_vec[b_next] += w_next
+        return f, {"mix": "3", "bucket": b, "u": u0, "weights": weights_vec, "params": {"tau": float(tau_val), "tau_c": float(tau_c_val)}}
     else:
         tpos, w = weights_all_16(int(b), float(u0), float(k_val))
         def f(lag_, bp_):
             vals = np.array([cdf_cond(j, lag_, bp_) for j in range(B)], dtype=np.float64)
             return float(np.dot(w, vals))
-        return f, {"mix": "16", "bucket": b, "u": u0, "t": tpos, "w": w}
+        return f, {"mix": "16", "bucket": b, "u": u0, "t": tpos, "weights": w, "params": {"k": float(k_val)}}
 
-cdf_func, mix_info = make_cdf_func(bp_past, int(lag), float(tau), float(tau_c), float(k))
+cdf_func, mix_info = make_cdf_func(bp_past, float(tau), float(tau_c), float(k))
 
-theo_prob = float("nan")
-if mode == "bps_up_now":
-    bp_req = bp_req_from_bp_up_now(float(bp_up_now))
-    theo_prob = theo_from_bp_req(cdf_func, int(lag), bp_req)
-else:
-    bp_req = bp_req_from_prices(float(s_cur), float(s_target))
-    theo_prob = theo_from_bp_req(cdf_func, int(lag), bp_req)
+bp_req = bp_req_from_bp_up_now(float(bp_up_now)) if mode == "bps_up_now" else bp_req_from_prices(float(s_cur), float(s_target))
+theo_prob = theo_from_bp_req(cdf_func, int(lag), bp_req)
 
 st.subheader("Result")
 if math.isfinite(theo_prob):
@@ -333,59 +292,44 @@ else:
     st.metric("theo_price (cents on $1)", "NaN")
 
 with st.expander("Smoothing weights widget", expanded=False):
-    if mix_info.get("mix") == "3":
-        st.write({"mode": "3-bucket softmax", "bucket": mix_info["bucket"], "u": mix_info["u"], "bins": mix_info["bins"], "weights": mix_info["w"], "tau": tau, "tau_c": tau_c})
-        df = pd.DataFrame({"bucket": list(range(16)), "label": BUCKET_LABELS_16, "weight": [0.0]*16})
-        for bi, wi in zip(mix_info["bins"], mix_info["w"]):
-            df.loc[df["bucket"] == bi, "weight"] = wi
-        st.dataframe(df, use_container_width=True)
-    elif mix_info.get("mix") == "16":
-        w = np.asarray(mix_info["w"], dtype=np.float64)
-        st.write({"mode": "16-bucket smooth", "bucket": mix_info["bucket"], "u": mix_info["u"], "t": mix_info["t"], "k": k})
+    st.write(mix_info)
+    if mix_info.get("mix") in ("3","16"):
+        w = np.asarray(mix_info["weights"], dtype=np.float64)
         df = pd.DataFrame({"bucket": list(range(16)), "label": BUCKET_LABELS_16, "weight": w})
         st.dataframe(df, use_container_width=True)
-    elif mix_info.get("mix") == "cond":
-        st.write({"mode": "conditional (no smoothing)", "bucket": mix_info["bucket"]})
-    else:
-        st.write({"mode": "unconditional"})
+
+with st.sidebar:
+    st.header("Plots")
+    st.caption("Plot theo as a function of one input while holding others fixed.")
+    plot_lag = st.checkbox("Theo vs lag", value=False, key="plot_lag")
+    plot_bp_past = st.checkbox("Theo vs past 15m move", value=False, key="plot_bp_past") if use_cond else False
+    plot_bp_up = st.checkbox("Theo vs current move (bp_up_now)", value=False, key="plot_bp_up") if mode == "bps_up_now" else False
+    plot_cur = st.checkbox("Theo vs current BTC price", value=False, key="plot_cur") if mode != "bps_up_now" else False
+    plot_target = st.checkbox("Theo vs target BTC price", value=False, key="plot_target") if mode != "bps_up_now" else False
+    plot_tau = st.checkbox("Theo vs tau", value=False, key="plot_tau") if (use_cond and smooth_mix and mix_mode=="3-bucket softmax") else False
+    plot_k = st.checkbox("Theo vs k", value=False, key="plot_k") if (use_cond and smooth_mix and mix_mode=="16-bucket smooth") else False
 
 if plot_lag:
     xvals = np.arange(1, 901, dtype=np.int32)
     theo_cents = []
-    if mode == "bps_up_now":
-        bp_req0 = bp_req_from_bp_up_now(float(bp_up_now))
-        for Lg in xvals:
-            f, _ = make_cdf_func(bp_past, int(Lg), float(tau), float(tau_c), float(k))
-            theo_cents.append(100.0 * theo_from_bp_req(f, int(Lg), bp_req0))
-        plot_theo_line(xvals, theo_cents, "Lag (seconds)", "Theo vs lag (others fixed)")
-    else:
-        bp_req0 = bp_req_from_prices(float(s_cur), float(s_target))
-        for Lg in xvals:
-            f, _ = make_cdf_func(bp_past, int(Lg), float(tau), float(tau_c), float(k))
-            theo_cents.append(100.0 * theo_from_bp_req(f, int(Lg), bp_req0))
-        plot_theo_line(xvals, theo_cents, "Lag (seconds)", "Theo vs lag (others fixed)")
+    for Lg in xvals:
+        f, _ = make_cdf_func(bp_past, float(tau), float(tau_c), float(k))
+        theo_cents.append(100.0 * theo_from_bp_req(f, int(Lg), bp_req))
+    plot_theo_line(xvals, theo_cents, "Lag (seconds)", "Theo vs lag (others fixed)")
 
 if plot_bp_past and use_cond:
     xvals = np.arange(-1000.0, 1000.0 + 0.1, 0.1, dtype=np.float64)
     theo_cents = []
-    if mode == "bps_up_now":
-        bp_req0 = bp_req_from_bp_up_now(float(bp_up_now))
-        for z in xvals:
-            f, _ = make_cdf_func(float(z), int(lag), float(tau), float(tau_c), float(k))
-            theo_cents.append(100.0 * theo_from_bp_req(f, int(lag), bp_req0))
-        plot_theo_line(xvals, theo_cents, "Past 15m move (bp)", "Theo vs past move (others fixed)")
-    else:
-        bp_req0 = bp_req_from_prices(float(s_cur), float(s_target))
-        for z in xvals:
-            f, _ = make_cdf_func(float(z), int(lag), float(tau), float(tau_c), float(k))
-            theo_cents.append(100.0 * theo_from_bp_req(f, int(lag), bp_req0))
-        plot_theo_line(xvals, theo_cents, "Past 15m move (bp)", "Theo vs past move (others fixed)")
+    for z in xvals:
+        f, _ = make_cdf_func(float(z), float(tau), float(tau_c), float(k))
+        theo_cents.append(100.0 * theo_from_bp_req(f, int(lag), bp_req))
+    plot_theo_line(xvals, theo_cents, "Past 15m move (bp)", "Theo vs past move (others fixed)")
 
 if plot_bp_up and mode == "bps_up_now":
     xvals = np.arange(-500.0, 500.0 + 0.5, 0.5, dtype=np.float64)
     theo_cents = []
     for x in xvals:
-        f, _ = make_cdf_func(bp_past, int(lag), float(tau), float(tau_c), float(k))
+        f, _ = make_cdf_func(bp_past, float(tau), float(tau_c), float(k))
         bp_reqx = bp_req_from_bp_up_now(float(x))
         theo_cents.append(100.0 * theo_from_bp_req(f, int(lag), bp_reqx))
     plot_theo_line(xvals, theo_cents, "Current move vs target (bp)", "Theo vs bp_up_now (others fixed)")
@@ -394,7 +338,7 @@ if plot_cur and mode != "bps_up_now":
     xvals = np.linspace(float(s_cur) * 0.98, float(s_cur) * 1.02, 301, dtype=np.float64)
     theo_cents = []
     for x in xvals:
-        f, _ = make_cdf_func(bp_past, int(lag), float(tau), float(tau_c), float(k))
+        f, _ = make_cdf_func(bp_past, float(tau), float(tau_c), float(k))
         bp_reqx = bp_req_from_prices(float(x), float(s_target))
         theo_cents.append(100.0 * theo_from_bp_req(f, int(lag), bp_reqx))
     plot_theo_line(xvals, theo_cents, "Current BTC price", "Theo vs current price (others fixed)")
@@ -403,7 +347,7 @@ if plot_target and mode != "bps_up_now":
     xvals = np.linspace(float(s_target) * 0.98, float(s_target) * 1.02, 301, dtype=np.float64)
     theo_cents = []
     for x in xvals:
-        f, _ = make_cdf_func(bp_past, int(lag), float(tau), float(tau_c), float(k))
+        f, _ = make_cdf_func(bp_past, float(tau), float(tau_c), float(k))
         bp_reqx = bp_req_from_prices(float(s_cur), float(x))
         theo_cents.append(100.0 * theo_from_bp_req(f, int(lag), bp_reqx))
     plot_theo_line(xvals, theo_cents, "Target BTC price", "Theo vs target price (others fixed)")
@@ -412,22 +356,14 @@ if plot_tau and use_cond and smooth_mix and mix_mode == "3-bucket softmax":
     xvals = np.linspace(0.10, 1.50, 141, dtype=np.float64)
     theo_cents = []
     for x in xvals:
-        f, _ = make_cdf_func(bp_past, int(lag), float(x), float(tau_c), float(k))
-        if mode == "bps_up_now":
-            bp_req0 = bp_req_from_bp_up_now(float(bp_up_now))
-        else:
-            bp_req0 = bp_req_from_prices(float(s_cur), float(s_target))
-        theo_cents.append(100.0 * theo_from_bp_req(f, int(lag), bp_req0))
+        f, _ = make_cdf_func(bp_past, float(x), float(tau_c), float(k))
+        theo_cents.append(100.0 * theo_from_bp_req(f, int(lag), bp_req))
     plot_theo_line(xvals, theo_cents, "tau", "Theo vs tau (others fixed)")
 
 if plot_k and use_cond and smooth_mix and mix_mode == "16-bucket smooth":
     xvals = np.linspace(0.25, 6.0, 116, dtype=np.float64)
     theo_cents = []
     for x in xvals:
-        f, _ = make_cdf_func(bp_past, int(lag), float(tau), float(tau_c), float(x))
-        if mode == "bps_up_now":
-            bp_req0 = bp_req_from_bp_up_now(float(bp_up_now))
-        else:
-            bp_req0 = bp_req_from_prices(float(s_cur), float(s_target))
-        theo_cents.append(100.0 * theo_from_bp_req(f, int(lag), bp_req0))
+        f, _ = make_cdf_func(bp_past, float(tau), float(tau_c), float(x))
+        theo_cents.append(100.0 * theo_from_bp_req(f, int(lag), bp_req))
     plot_theo_line(xvals, theo_cents, "k", "Theo vs k (others fixed)")
