@@ -1,0 +1,19 @@
+{
+  "file": "out/cdf_grid.f32",
+  "dtype": "float32",
+  "shape": [
+    901,
+    90001
+  ],
+  "lags_used": [
+    1,
+    900
+  ],
+  "bp_min": -4000.0,
+  "bp_max": 5000.0,
+  "step_bp": 0.1,
+  "bp10_min": -40000,
+  "bp10_max": 50000,
+  "num_bins": 90001,
+  "meaning": "cdf_grid[lag, bp10-bp10_min] = P(900? no: lag-second return in bp <= bp_move)"
+}

@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+out/
+*.f32
+*.zst
+
+# allow LFS data files
+!data/*.f32
+!data/*.json
+
+# never commit the combined 3GB conditional grid
+cond_cdf_grid_10x901x90001.f32
+out/cond_cdf_grid_10x901x90001.f32
