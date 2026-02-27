@@ -201,7 +201,17 @@ if use_cond and not cond_available:
     st.write(cond_reason)
     st.stop()
 if use_cond:
-    smooth_mix = st.checkbox("Smooth mix using percentile within bucket", value=True, key="smooth_mix")
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        smooth_mix = st.checkbox("Smooth mix using percentile within bucket", value=True, key="smooth_mix")
+    with c2:
+        st.info(
+            "Behind the scenes: we compute the percentile u of your past 15-minute move within its bucket "
+            "using a precomputed 0.1bp lookup table. Then we compute soft weights over the previous/current/next "
+            "buckets via a smooth softmax (controlled by tau and tau_c). The final CDF value is the weighted sum "
+            "of those three buckets’ CDF values at the same threshold, and theo = 1 − mixed_CDF. "
+            "This makes theo vary smoothly instead of jumping at bucket edges."
+        )
 else:
     smooth_mix = False
 
