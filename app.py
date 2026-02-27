@@ -3,6 +3,8 @@ import math
 import mmap
 import os
 import struct
+import numpy as np
+import pandas as pd
 import streamlit as st
 
 UN_GRID_PATH  = "data/cdf_grid.f32"
@@ -50,13 +52,15 @@ def load_pct():
     m = json.load(open(PCT_META_PATH))
     file_path = m["file"]
     if not os.path.isabs(file_path):
-        file_path = os.path.join(os.getcwd(), file_path)
+        alt = os.path.join("data", os.path.basename(file_path))
+        if os.path.exists(alt):
+            file_path = alt
     bp10_min = int(m["bp10_min"])
     bp10_max = int(m["bp10_max"])
     nbins = int(m["nbins"])
     f = open(file_path, "rb")
     mm = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
-    return {"bp10_min": bp10_min, "bp10_max": bp10_max, "nbins": nbins, "f": f, "mm": mm}
+    return {"bp10_min": bp10_min, "bp10_max": bp10_max, "nbins": nbins, "file_path": file_path, "f": f, "mm": mm}
 
 def cdf_uncond(g, lag: int, bp: float) -> float:
     rows, cols = g["rows"], g["cols"]
@@ -118,9 +122,7 @@ def percentile_in_bucket(bp_past: float, bucket: int) -> float:
     b = max(0, min(bucket, 15))
     off = (b * nbins + col) * 2
     u = struct.unpack_from("<e", p["mm"], off)[0]
-    if not math.isfinite(float(u)):
-        return 0.5
-    u = float(u)
+    u = float(u) if math.isfinite(float(u)) else 0.5
     if u < 0.0: u = 0.0
     if u > 1.0: u = 1.0
     return u
@@ -129,15 +131,24 @@ def weights_softmax_3(u: float, tau: float, tau_c: float):
     dL = u
     dU = 1.0 - u
     dC = abs(u - 0.5)
-    sL = -dL / max(1e-9, tau)
-    sU = -dU / max(1e-9, tau)
-    sC = -dC / max(1e-9, tau_c)
+    sL = -dL / max(1e-12, tau)
+    sU = -dU / max(1e-12, tau)
+    sC = -dC / max(1e-12, tau_c)
     m = max(sL, sC, sU)
     eL = math.exp(sL - m)
     eC = math.exp(sC - m)
     eU = math.exp(sU - m)
     Z = eL + eC + eU
-    return eL / Z, eC / Z, eU / Z
+    return eL / Z, eC / Z, eU / Z, (dL, dC, dU), (sL, sC, sU)
+
+def weights_all_16(b: int, u: float, k: float):
+    t = float(b) + (float(u) - 0.5)
+    j = np.arange(16, dtype=np.float64)
+    scores = -np.abs(j - t) / max(1e-12, float(k))
+    m = float(scores.max())
+    w = np.exp(scores - m)
+    w = w / float(w.sum())
+    return t, scores, w
 
 def theo_up_from_bps_up_now(cdf_func, lag: int, bp_up_now: float) -> float:
     r_now = bp_up_now / 10000.0
@@ -158,7 +169,7 @@ def theo_up_from_prices(cdf_func, lag: int, s_cur: float, s_target: float) -> fl
 
 st.set_page_config(page_title="YES Theo (Conditional + Smooth Mix)", layout="centered")
 st.title("YES Theo Calculator (BTC 15m Up/Down)")
-st.write("Unconditional + 16-bucket conditional theo, with optional percentile-based smooth mixing.")
+st.write("Unconditional + 16-bucket conditional theo, with optional percentile-based smoothing.")
 
 un = load_uncond()
 
@@ -181,14 +192,7 @@ pct_available = os.path.exists(PCT_META_PATH)
 pct_reason = ""
 if pct_available:
     try:
-        pm = json.load(open(PCT_META_PATH))
-        pct_file = pm["file"]
-        if not os.path.exists(pct_file):
-            if os.path.exists(os.path.join("data", os.path.basename(pct_file))):
-                pass
-            else:
-                pct_available = False
-                pct_reason = f"Missing percentile file: {pct_file}"
+        _ = load_pct()
     except Exception as e:
         pct_available = False
         pct_reason = str(e)
@@ -200,23 +204,21 @@ if use_cond and not cond_available:
     st.error("Conditional CDF requested but not available on this deployment.")
     st.write(cond_reason)
     st.stop()
+
+smooth_mix = False
+mix_mode = None
 if use_cond:
     c1, c2 = st.columns([1, 2])
     with c1:
-        smooth_mix = st.checkbox("Smooth mix using percentile within bucket", value=True, key="smooth_mix")
+        smooth_mix = st.checkbox("Enable smoothing", value=True, key="smooth_mix")
     with c2:
         st.info(
-            "Behind the scenes: we compute the percentile u of your past 15-minute move within its bucket "
-            "using a precomputed 0.1bp lookup table. Then we compute soft weights over the previous/current/next "
-            "buckets via a smooth softmax (controlled by tau and tau_c). The final CDF value is the weighted sum "
-            "of those three buckets’ CDF values at the same threshold, and theo = 1 − mixed_CDF. "
-            "This makes theo vary smoothly instead of jumping at bucket edges."
+            "Smoothing uses the percentile u of your past 15-minute move within its bucket (from a precomputed 0.1bp lookup table). "
+            "We then compute weights and form a weighted average of conditional CDFs at the same threshold, and finally theo = 1 − mixed_CDF."
         )
-else:
-    smooth_mix = False
 
 if smooth_mix and not pct_available:
-    st.error("Smooth mix requested but percentile table not available on this deployment.")
+    st.error("Smoothing requested but percentile table not available on this deployment.")
     st.write(pct_reason)
     st.stop()
 
@@ -224,36 +226,77 @@ lag = st.number_input("Lag seconds remaining (1–900)", min_value=1, max_value=
 
 bucket = None
 bp_past = None
+u = None
+
 if use_cond:
     bp_past = st.number_input("Past 15-minute move (bp)", value=0.0, step=5.0, format="%.1f", key="bp_past")
     bucket = bucket_id_16(float(bp_past))
     st.caption(f"Bucket = {bucket} ({BUCKET_LABELS_16[bucket]})")
 
+if smooth_mix:
+    mix_mode = st.radio("Smoothing mode", ["3-bucket softmax", "16-bucket smooth"], index=1, key="mix_mode")
+
 mode = st.radio("Input mode", ["bps_up_now", "prices (current vs target)"], index=0, key="mode")
 
-tau = 0.35
-tau_c = 0.30
+debug_weights = False
 if smooth_mix:
-    tau = st.number_input("tau (edge temperature)", value=0.35, step=0.05, format="%.2f", key="tau")
-    tau_c = st.number_input("tau_c (center temperature)", value=0.30, step=0.05, format="%.2f", key="tau_c")
+    debug_weights = st.checkbox("Show smoothing weights details", value=False, key="debug_weights")
+
+details = None
 
 if use_cond and smooth_mix:
     u = percentile_in_bucket(float(bp_past), int(bucket))
-    w_prev, w_cur, w_next = weights_softmax_3(u, float(tau), float(tau_c))
-
     B = len(load_cond_meta()["bucket_files"])
-    b_prev = max(0, bucket - 1)
-    b_cur = bucket
-    b_next = min(B - 1, bucket + 1)
+    if mix_mode == "3-bucket softmax":
+        tau = st.number_input("tau (edge temperature)", value=0.60, step=0.05, format="%.2f", key="tau")
+        tau_c = st.number_input("tau_c (center temperature)", value=0.50, step=0.05, format="%.2f", key="tau_c")
+        w_prev, w_cur, w_next, ds, ss = weights_softmax_3(u, float(tau), float(tau_c))
+        b_prev = max(0, bucket - 1)
+        b_cur = bucket
+        b_next = min(B - 1, bucket + 1)
+        weights_vec = np.zeros(B, dtype=np.float64)
+        weights_vec[b_prev] += w_prev
+        weights_vec[b_cur] += w_cur
+        weights_vec[b_next] += w_next
 
-    def cdf_func(lag_, bp_):
-        return (
-            w_prev * cdf_cond(b_prev, lag_, bp_) +
-            w_cur  * cdf_cond(b_cur,  lag_, bp_) +
-            w_next * cdf_cond(b_next, lag_, bp_)
-        )
+        def cdf_func(lag_, bp_):
+            return (
+                w_prev * cdf_cond(b_prev, lag_, bp_) +
+                w_cur  * cdf_cond(b_cur,  lag_, bp_) +
+                w_next * cdf_cond(b_next, lag_, bp_)
+            )
 
-    st.caption(f"u={u:.4f}, weights(prev,cur,next)=({w_prev:.3f},{w_cur:.3f},{w_next:.3f})")
+        details = {
+            "mode": "3-bucket softmax",
+            "u": u,
+            "bucket": bucket,
+            "bucket_prev": b_prev,
+            "bucket_cur": b_cur,
+            "bucket_next": b_next,
+            "weights": weights_vec,
+            "dists": ds,
+            "scores": ss,
+            "params": {"tau": float(tau), "tau_c": float(tau_c)}
+        }
+        st.caption(f"u={u:.4f}, weights(prev,cur,next)=({w_prev:.3f},{w_cur:.3f},{w_next:.3f})")
+    else:
+        k = st.number_input("k (spread across bucket index)", value=2.0, step=0.25, format="%.2f", key="k")
+        t, scores, w = weights_all_16(bucket, u, float(k))
+
+        def cdf_func(lag_, bp_):
+            vals = np.array([cdf_cond(j, lag_, bp_) for j in range(B)], dtype=np.float64)
+            return float(np.dot(w, vals))
+
+        details = {
+            "mode": "16-bucket smooth",
+            "u": u,
+            "bucket": bucket,
+            "t": float(t),
+            "weights": w,
+            "scores": scores,
+            "params": {"k": float(k)}
+        }
+        st.caption(f"u={u:.4f}, t={float(t):.3f}")
 elif use_cond:
     def cdf_func(lag_, bp_):
         return cdf_cond(bucket, lag_, bp_)
@@ -277,3 +320,19 @@ if math.isfinite(theo_prob):
 else:
     st.metric("theo_prob (0–1)", "NaN")
     st.metric("theo_price (cents on $1)", "NaN")
+
+if debug_weights and details is not None:
+    with st.expander("Smoothing weights and calculation details", expanded=False):
+        st.write({"mix_mode": details["mode"], "bucket": details["bucket"], "u": details["u"], "params": details["params"]})
+        if details["mode"] == "3-bucket softmax":
+            dL, dC, dU = details["dists"]
+            sL, sC, sU = details["scores"]
+            st.write({"dL": dL, "dC": dC, "dU": dU, "s_prev": sL, "s_cur": sC, "s_next": sU})
+            st.write("Weights are computed as softmax of scores: w_i = exp(s_i) / sum_j exp(s_j), applied to prev/current/next buckets, then mixed_CDF = sum w_i * CDF_i.")
+        else:
+            st.write({"t": details["t"]})
+            st.write("We form a continuous bucket position t = bucket + (u - 0.5). Then scores_j = -|j - t|/k. Weights are softmax(scores). mixed_CDF = sum_j w_j * CDF_j.")
+        w = details["weights"]
+        df = pd.DataFrame({"bucket": list(range(len(w))), "label": BUCKET_LABELS_16, "weight": w})
+        st.dataframe(df, use_container_width=True)
+
