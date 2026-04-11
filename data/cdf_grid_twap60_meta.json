@@ -1,0 +1,22 @@
+{
+  "file": "data/cdf_grid_twap60.f32",
+  "dtype": "float32",
+  "shape": [
+    901,
+    90001
+  ],
+  "bp_min": -4000.0,
+  "bp_max": 5000.0,
+  "step_bp": 0.1,
+  "bp10_min": -40000,
+  "bp10_max": 50000,
+  "num_bins": 90001,
+  "lags_used": [
+    1,
+    900
+  ],
+  "twap_points": 60,
+  "price_path": "out/close_rev.f32",
+  "twap_path": "out/close_twap60_rev.f32",
+  "meaning": "cdf_grid_twap60[lag, col] = P(10000*(mean(P[t+lag-59:t+lag])/P[t]-1) <= bp)"
+}
